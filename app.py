@@ -9,7 +9,7 @@ import time
 app = Flask(__name__)
 CORS(app)
 
-DOWNLOAD_FOLDER = "/tmp/audio"
+DOWNLOAD_FOLDER = "/tmp/media"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 def delete_file_later(path, delay=300):
@@ -19,10 +19,19 @@ def delete_file_later(path, delay=300):
             os.remove(path)
     threading.Thread(target=_delete, daemon=True).start()
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-us,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate",
+}
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "InstaAudio API is running ✅"})
 
+
+# ─── AUDIO EXTRACT ───
 @app.route("/extract", methods=["POST"])
 def extract_audio():
     data = request.get_json()
@@ -30,7 +39,6 @@ def extract_audio():
 
     if not url:
         return jsonify({"error": "URL is required"}), 400
-
     if "instagram.com" not in url:
         return jsonify({"error": "Please provide a valid Instagram URL"}), 400
 
@@ -48,12 +56,7 @@ def extract_audio():
         "quiet": True,
         "no_warnings": True,
         "cookiefile": "cookies.txt",
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-us,en;q=0.5",
-            "Sec-Fetch-Mode": "navigate",
-        },
+        "http_headers": HEADERS,
     }
 
     try:
@@ -65,7 +68,6 @@ def extract_audio():
             return jsonify({"error": "Audio extraction failed. Reel may be private."}), 500
 
         delete_file_later(output_path)
-
         return jsonify({
             "success": True,
             "title": title,
@@ -76,12 +78,68 @@ def extract_audio():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# ─── AUDIO DOWNLOAD ───
 @app.route("/download/<file_id>", methods=["GET"])
 def download_file(file_id):
     path = os.path.join(DOWNLOAD_FOLDER, f"{file_id}.mp3")
     if not os.path.exists(path):
         return jsonify({"error": "File not found or expired"}), 404
     return send_file(path, as_attachment=True, download_name="instagram_audio.mp3")
+
+
+# ─── VIDEO EXTRACT ───
+@app.route("/extract-video", methods=["POST"])
+def extract_video():
+    data = request.get_json()
+    url = data.get("url", "").strip()
+
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+    if "instagram.com" not in url:
+        return jsonify({"error": "Please provide a valid Instagram URL"}), 400
+
+    file_id = str(uuid.uuid4())
+    output_path = os.path.join(DOWNLOAD_FOLDER, f"{file_id}.mp4")
+
+    ydl_opts = {
+        "format": "bestvideo+bestaudio/best",
+        "outtmpl": os.path.join(DOWNLOAD_FOLDER, f"{file_id}.%(ext)s"),
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+        "cookiefile": "cookies.txt",
+        "http_headers": HEADERS,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get("title", "instagram_video")
+
+        if not os.path.exists(output_path):
+            return jsonify({"error": "Video download failed. Reel may be private."}), 500
+
+        delete_file_later(output_path)
+        return jsonify({
+            "success": True,
+            "title": title,
+            "download_url": f"/download-video/{file_id}",
+            "filename": f"{file_id}.mp4"
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── VIDEO DOWNLOAD ───
+@app.route("/download-video/<file_id>", methods=["GET"])
+def download_video_file(file_id):
+    path = os.path.join(DOWNLOAD_FOLDER, f"{file_id}.mp4")
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found or expired"}), 404
+    return send_file(path, as_attachment=True, download_name="instagram_video.mp4")
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
