@@ -7,12 +7,11 @@ import threading
 import time
 
 app = Flask(__name__)
-CORS(app)  # Allow requests from any website (your Blogger)
+CORS(app)
 
 DOWNLOAD_FOLDER = "/tmp/audio"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# Auto-delete files after 5 minutes (cleanup)
 def delete_file_later(path, delay=300):
     def _delete():
         time.sleep(delay)
@@ -20,11 +19,9 @@ def delete_file_later(path, delay=300):
             os.remove(path)
     threading.Thread(target=_delete, daemon=True).start()
 
-
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "InstaAudio API is running ✅"})
-
 
 @app.route("/extract", methods=["POST"])
 def extract_audio():
@@ -34,7 +31,6 @@ def extract_audio():
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
-    # Basic Instagram URL check
     if "instagram.com" not in url:
         return jsonify({"error": "Please provide a valid Instagram URL"}), 400
 
@@ -51,9 +47,12 @@ def extract_audio():
         }],
         "quiet": True,
         "no_warnings": True,
-        # Helps avoid Instagram blocks
+        "cookiefile": "/etc/secrets/cookies.txt",
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-us,en;q=0.5",
+            "Sec-Fetch-Mode": "navigate",
         },
     }
 
@@ -65,7 +64,6 @@ def extract_audio():
         if not os.path.exists(output_path):
             return jsonify({"error": "Audio extraction failed. Reel may be private."}), 500
 
-        # Schedule file deletion after 5 min
         delete_file_later(output_path)
 
         return jsonify({
@@ -78,14 +76,12 @@ def extract_audio():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/download/<file_id>", methods=["GET"])
 def download_file(file_id):
     path = os.path.join(DOWNLOAD_FOLDER, f"{file_id}.mp3")
     if not os.path.exists(path):
         return jsonify({"error": "File not found or expired"}), 404
     return send_file(path, as_attachment=True, download_name="instagram_audio.mp3")
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
